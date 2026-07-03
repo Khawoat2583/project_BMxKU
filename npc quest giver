@@ -1,0 +1,81 @@
+extends Area3D
+@export var quests: Array[Quest] = []
+@export var quest_ui: CanvasLayer
+@export var quest_minigame: Control
+@onready var label_3d: Label3D = get_parent().get_node("Label3D")
+var in_range: bool = false
+
+func _ready() -> void:
+	label_3d.hide()
+	_update_label()
+	if quest_ui:
+		quest_ui.quest_accepted.connect(_on_quest_accepted)
+
+func _process(_delta: float) -> void:
+	if in_range and Input.is_action_just_pressed("interact"):
+		_try_open_quest_ui()
+	_update_label()
+
+func _on_body_entered(body: Node3D) -> void:
+	if body.is_in_group("player"):
+		_set_in_range(true)
+
+func _on_body_exited(body: Node3D) -> void:
+	if body.is_in_group("player"):
+		_set_in_range(false)
+
+func _set_in_range(value: bool) -> void:
+	in_range = value
+	_update_label()
+
+func _update_label() -> void:
+	var active_quest = _get_active_quest()
+	var available = get_available_quests()
+
+	if not in_range:
+		label_3d.hide()
+		return
+
+	if active_quest:
+		label_3d.text = "Quest: " + active_quest.brief_description
+		label_3d.show()
+	elif not available.is_empty():
+		label_3d.text = "\"C\" to chat or \"E\" get quest"
+		label_3d.show()
+	else:
+		label_3d.text = "\"C\" to chat"
+		label_3d.show()
+
+func get_available_quests() -> Array[Quest]:
+	return quests.filter(func(q): return not q.is_completed and not q.is_active)
+
+func _get_active_quest() -> Quest:
+	for q in quests:
+		if q.is_active and not q.is_completed:
+			return q
+	return null
+
+func _try_open_quest_ui() -> void:
+	print("Trying to open quest UI...")
+	var available = get_available_quests()
+	print("Available quests: ", available.size())
+	if available.is_empty():
+		print("No available quests, returning")
+		return
+
+	var quest = available[0]
+	print("Quest found: ", quest.name, " | quest_ui ref: ", quest_ui)
+	if quest_ui:
+		quest_ui.show_quest(quest)
+		print("show_quest called")
+
+func _on_quest_accepted(quest: Quest) -> void:
+	quest.start()
+	_update_label()
+	print("_on_quest_accepted called, quest: ", quest.name)
+	print("quest_minigame ref: ", quest_minigame)
+	if quest_minigame:
+		print("Starting minigame...")
+		quest_minigame.start_quest_event(quest)
+	else:
+		print("ERROR: quest_minigame is null!")
