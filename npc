@@ -1,0 +1,122 @@
+extends CharacterBody3D
+@export var dialogue_node: Control
+var speed = 0.5
+var current_state = IDLE
+var dir = Vector2.RIGHT
+var start_pos
+var is_roaming = true
+var is_chatting = false
+var player: Node3D = null
+var player_in_chat_zone = false
+var wait_timer: float = 0.0
+const WAIT_LIMIT = 10.0  # วินาทีที่รอ
+
+enum {
+	IDLE,
+	NEW_DIR,
+	MOVE
+}
+
+func _ready():
+	randomize()
+	start_pos = position
+	if has_node("Timer"):
+		$Timer.start()
+
+func _physics_process(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y += get_gravity().y * delta
+	else:
+		velocity.y = 0.0
+
+	# นับเวลารอ player กดคุย
+	if player_in_chat_zone and not is_chatting:
+		wait_timer += delta
+		if wait_timer >= WAIT_LIMIT:
+			_npc_give_up()
+
+	if is_roaming and not is_chatting:
+		match current_state:
+			IDLE:
+				velocity.x = 0
+				velocity.z = 0
+				if has_node("AnimatedSprite3D"):
+					$AnimatedSprite3D.play("idle")
+			NEW_DIR:
+				dir = _choose([Vector2.RIGHT, Vector2.UP, Vector2.LEFT, Vector2.DOWN])
+				current_state = MOVE
+			MOVE:
+				velocity.x = dir.x * speed
+				velocity.z = dir.y * speed
+				if has_node("AnimatedSprite3D"):
+					if dir.x == -1: $AnimatedSprite3D.play("walk_w")
+					elif dir.x == 1: $AnimatedSprite3D.play("walk_e")
+					elif dir.y == -1: $AnimatedSprite3D.play("walk_n")
+					elif dir.y == 1: $AnimatedSprite3D.play("walk_s")
+	else:
+		velocity.x = 0
+		velocity.z = 0
+		if has_node("AnimatedSprite3D"):
+			$AnimatedSprite3D.play("idle")
+
+	move_and_slide()
+
+	if Input.is_action_just_pressed("chat") and player_in_chat_zone:
+		if dialogue_node:
+			is_chatting = true
+			is_roaming = false
+			wait_timer = 0.0
+			$AnimatedSprite3D.play("idle")
+			dialogue_node._start()
+		else:
+			print("ERROR: ยังไม่ได้ลาก Dialogue node ใส่ใน Inspector!")
+
+func _npc_give_up():
+	print("NPC เดินต่อแล้ว รอนานเกินไป")
+	wait_timer = 0.0
+	player_in_chat_zone = false
+	is_roaming = true
+	current_state = _choose([NEW_DIR, MOVE])
+
+func _choose(array):
+	array.shuffle()
+	return array.front()
+
+func _on_chat_detection_area_body_entered(body: Node3D):
+	print("Area entered by: ", body.name)
+	if body.name.to_lower().contains("player"):
+		print("Confirmed player, setting chat zone true")
+		player = body
+		player_in_chat_zone = true
+		wait_timer = 0.0
+		is_roaming = false
+		velocity.x = 0
+		velocity.z = 0
+		if has_node("AnimatedSprite3D"):
+			$AnimatedSprite3D.play("idle")
+
+func _on_chat_detection_area_body_exited(body: Node3D):
+	if body == player:
+		player = null
+		player_in_chat_zone = false
+		is_chatting = false
+		is_roaming = true
+		wait_timer = 0.0
+
+func _on_timer_timeout():
+	if is_roaming and not is_chatting:
+		if has_node("Timer"):
+			$Timer.wait_time = _choose([1.0, 1.5, 2.0])
+			current_state = _choose([IDLE, NEW_DIR, MOVE])
+
+func _on_dialogue_dialogue_finished() -> void:
+	is_chatting = false
+	is_roaming = true
+
+func _on_boundary_wall_body_entered(body: Node3D) -> void:
+	print("boundary hit by: ", body.name)
+	if body == self:
+		dir = -dir
+		current_state = MOVE
+		position.x += dir.x * 0.1
+		position.z += dir.y * 0.1
