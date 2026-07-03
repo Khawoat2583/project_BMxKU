@@ -1,0 +1,109 @@
+extends Control
+
+@export var event_bar_scene: PackedScene
+var current_quest: Quest = null
+var event_bar_instance: Control = null
+var result_label: Label = null
+
+func _ready() -> void:
+	hide()
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+
+func start_quest_event(quest: Quest) -> void:
+	current_quest = quest
+	show()
+
+	event_bar_instance = event_bar_scene.instantiate()
+	event_bar_instance.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(event_bar_instance)
+	event_bar_instance.set_anchors_preset(Control.PRESET_CENTER)
+	event_bar_instance.session_finished.connect(_on_session_finished)
+	event_bar_instance.result_registered.connect(_on_result_registered)
+	event_bar_instance.start_session()
+
+	var viewport_size = get_viewport().get_visible_rect().size
+	result_label = Label.new()
+	result_label.size = Vector2(400, 120)
+	result_label.position = Vector2(
+		viewport_size.x / 2.0 - 200,
+		viewport_size.y / 2.0 - 200
+	)
+	result_label.add_theme_font_size_override("font_size", 36)
+	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	result_label.add_theme_constant_override("outline_size", 4)
+	result_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	add_child(result_label)
+
+	get_tree().paused = true
+
+func _on_result_registered(result: String) -> void:
+	if result_label == null or current_quest == null:
+		return
+
+	var base_gold = current_quest.reward_gold
+	var base_exp = current_quest.reward_exp
+
+	match result:
+		"bonus":
+			result_label.text = "BONUS! 🎉\n+%d Gold  +%d EXP" % [int(base_gold * 2.0), int(base_exp * 2.0)]
+			result_label.add_theme_color_override("font_color", Color.YELLOW)
+		"success":
+			result_label.text = "Success! ⭐\n+%d Gold  +%d EXP" % [int(base_gold * 1.5), int(base_exp * 1.5)]
+			result_label.add_theme_color_override("font_color", Color.GREEN)
+		"normal":
+			result_label.text = "Normal\n+%d Gold  +%d EXP" % [base_gold, base_exp]
+			result_label.add_theme_color_override("font_color", Color.WHITE)
+		"fail":
+			result_label.text = "Miss! ❌\n+0 Gold  +0 EXP"
+			result_label.add_theme_color_override("font_color", Color.RED)
+
+func _on_session_finished(results: Dictionary) -> void:
+	print("Session results: ", results)
+
+	var bonus_count = results.get("bonus", 0)
+	var success_count = results.get("success", 0)
+	var normal_count = results.get("normal", 0)
+
+	if bonus_count + success_count > 0:
+		print("Quest passed!")
+		_give_reward(bonus_count, success_count, normal_count)
+		current_quest.complete()
+	else:
+		print("Quest failed.")
+		current_quest.is_active = false
+
+	_close()
+
+func _give_reward(bonus: int, success: int, normal: int) -> void:
+	if current_quest == null:
+		return
+
+	var base_gold = current_quest.reward_gold
+	var base_exp = current_quest.reward_exp
+
+	var total_gold = 0
+	var total_exp = 0
+
+	total_gold += bonus   * int(base_gold * 2.0)
+	total_gold += success * int(base_gold * 1.5)
+	total_gold += normal  * int(base_gold * 1.0)
+
+	total_exp += bonus   * int(base_exp * 2.0)
+	total_exp += success * int(base_exp * 1.5)
+	total_exp += normal  * int(base_exp * 1.0)
+
+	GameManager.add_gold(total_gold)
+	GameManager.add_exp(total_exp)
+	print("Reward: Gold +%d  EXP +%d" % [total_gold, total_exp])
+
+func _close() -> void:
+	if result_label:
+		result_label.queue_free()
+		result_label = null
+	if event_bar_instance:
+		event_bar_instance.queue_free()
+		event_bar_instance = null
+	hide()
+	get_tree().paused = false
